@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "start": "node server.js",
+    "test": "node --check src/game.js && node --check server.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-basic-ssl": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {},
+  "type": "module"
+}
