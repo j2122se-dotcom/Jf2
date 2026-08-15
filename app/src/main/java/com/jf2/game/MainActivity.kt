@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,19 +34,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 
 private enum class GameScreen { MAIN_MENU, STORY_CHARACTER_SELECT, STORY, ONLINE }
 private enum class OnlineScreen { LOBBY, CREATE_ROOM, JOIN_ROOM }
-private enum class BotDifficulty(val label: String, val level: Int) {
-    NOVATO("Novato", 1),
-    AMADOR("Amador", 2),
-    MESTRE("Mestre", 3),
-    VETERANO("Veterano", 4)
-}
-
+private enum class BotDifficulty(val label: String) { NOVATO("Novato"), AMADOR("Amador"), MESTRE("Mestre"), VETERANO("Veterano") }
 private data class Hero(val name: String, val role: String, val description: String)
 private data class Enemy(val id: Int, val position: Offset, val health: Int)
 
@@ -66,18 +62,10 @@ class MainActivity : ComponentActivity() {
             var selectedHero by remember { mutableStateOf<Hero?>(null) }
             MaterialTheme {
                 when (screen) {
-                    GameScreen.MAIN_MENU -> MainMenu(
-                        onStory = { screen = GameScreen.STORY_CHARACTER_SELECT },
-                        onOnline = { screen = GameScreen.ONLINE }
-                    )
-                    GameScreen.STORY_CHARACTER_SELECT -> CharacterSelectionScreen(
-                        selectedHero = selectedHero,
-                        onSelect = { selectedHero = it },
-                        onStart = { screen = GameScreen.STORY },
-                        onBack = { selectedHero = null; screen = GameScreen.MAIN_MENU }
-                    )
-                    GameScreen.STORY -> MissionOne(hero = selectedHero, onBack = { screen = GameScreen.STORY_CHARACTER_SELECT })
-                    GameScreen.ONLINE -> OnlineLobby(onBack = { screen = GameScreen.MAIN_MENU })
+                    GameScreen.MAIN_MENU -> MainMenu({ screen = GameScreen.STORY_CHARACTER_SELECT }, { screen = GameScreen.ONLINE })
+                    GameScreen.STORY_CHARACTER_SELECT -> CharacterSelectionScreen(selectedHero, { selectedHero = it }, { screen = GameScreen.STORY }, { selectedHero = null; screen = GameScreen.MAIN_MENU })
+                    GameScreen.STORY -> MissionOne(selectedHero) { screen = GameScreen.STORY_CHARACTER_SELECT }
+                    GameScreen.ONLINE -> OnlineLobby { screen = GameScreen.MAIN_MENU }
                 }
             }
         }
@@ -86,11 +74,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun MainMenu(onStory: () -> Unit, onOnline: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("JF2", style = MaterialTheme.typography.displayMedium)
         Spacer(Modifier.height(24.dp))
         Button(onClick = onStory, Modifier.fillMaxWidth()) { Text("Modo História") }
@@ -100,12 +84,9 @@ private fun MainMenu(onStory: () -> Unit, onOnline: () -> Unit) {
 }
 
 @Composable
-private fun CharacterSelectionScreen(
-    selectedHero: Hero?, onSelect: (Hero) -> Unit, onStart: () -> Unit, onBack: () -> Unit
-) {
+private fun CharacterSelectionScreen(selectedHero: Hero?, onSelect: (Hero) -> Unit, onStart: () -> Unit, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("SELEÇÃO DE PERSONAGEM", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
         Text("Escolha seu herói para começar a campanha.")
         Spacer(Modifier.height(12.dp))
         heroes.forEach { hero ->
@@ -114,15 +95,11 @@ private fun CharacterSelectionScreen(
                     Text(hero.name, style = MaterialTheme.typography.titleLarge)
                     Text(hero.role)
                     Text(hero.description)
-                    Button(onClick = { onSelect(hero) }) {
-                        Text(if (hero == selectedHero) "Selecionado" else "Selecionar")
-                    }
+                    Button(onClick = { onSelect(hero) }) { Text(if (hero == selectedHero) "Selecionado" else "Selecionar") }
                 }
             }
         }
-        Button(onClick = onStart, enabled = selectedHero != null, Modifier.fillMaxWidth()) {
-            Text(if (selectedHero == null) "Escolha um personagem" else "Começar campanha")
-        }
+        Button(onClick = onStart, enabled = selectedHero != null, Modifier.fillMaxWidth()) { Text(if (selectedHero == null) "Escolha um personagem" else "Começar campanha") }
         OutlinedButton(onClick = onBack, Modifier.fillMaxWidth()) { Text("Voltar") }
     }
 }
@@ -131,108 +108,58 @@ private fun CharacterSelectionScreen(
 private fun OnlineLobby(onBack: () -> Unit) {
     var onlineScreen by remember { mutableStateOf(OnlineScreen.LOBBY) }
     var roomCode by remember { mutableStateOf("") }
-    var joinedRoom by remember { mutableStateOf(false) }
+    var roomCreated by remember { mutableStateOf(false) }
     var botCount by remember { mutableStateOf(0) }
-    var botDifficulty by remember { mutableStateOf(BotDifficulty.NOVATO) }
+    var difficulty by remember { mutableStateOf(BotDifficulty.NOVATO) }
     var message by remember { mutableStateOf("Crie uma sala ou entre com um código.") }
 
     when (onlineScreen) {
-        OnlineScreen.LOBBY -> Column(
-            Modifier.fillMaxSize().padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
+        OnlineScreen.LOBBY -> Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text("MODO ONLINE", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(message)
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = { onlineScreen = OnlineScreen.CREATE_ROOM }, Modifier.fillMaxWidth()) {
-                Text("Criar sala")
-            }
+            Spacer(Modifier.height(8.dp)); Text(message); Spacer(Modifier.height(20.dp))
+            Button(onClick = { onlineScreen = OnlineScreen.CREATE_ROOM }, Modifier.fillMaxWidth()) { Text("Criar sala") }
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { onlineScreen = OnlineScreen.JOIN_ROOM }, Modifier.fillMaxWidth()) {
-                Text("Entrar em sala")
-            }
+            Button(onClick = { onlineScreen = OnlineScreen.JOIN_ROOM }, Modifier.fillMaxWidth()) { Text("Entrar em sala") }
             Spacer(Modifier.height(10.dp))
             OutlinedButton(onClick = onBack, Modifier.fillMaxWidth()) { Text("Voltar") }
         }
-
-        OnlineScreen.CREATE_ROOM -> CreateRoomScreen(
-            roomCode = roomCode,
-            botCount = botCount,
-            difficulty = botDifficulty,
-            onAddBot = { if (botCount < 7) botCount++ },
-            onRemoveBot = { if (botCount > 0) botCount-- },
-            onDifficulty = { botDifficulty = it },
-            onCreate = {
-                roomCode = generateRoomCode()
-                joinedRoom = true
-                message = "Sala criada: $roomCode"
-            },
-            onInvite = {
-                val shareText = "Venha jogar JF2 comigo! Código da sala: $roomCode"
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                }
-                // This screen is UI-only until a real multiplayer server is connected.
-            },
-            joined = joinedRoom,
-            onBack = { onlineScreen = OnlineScreen.LOBBY }
-        )
-
-        OnlineScreen.JOIN_ROOM -> JoinRoomScreen(
-            onJoin = { code ->
-                roomCode = code.uppercase().trim()
-                joinedRoom = roomCode.length == 6
-                message = if (joinedRoom) "Você entrou na sala $roomCode" else "O código precisa ter 6 caracteres."
-            },
-            onBack = { onlineScreen = OnlineScreen.LOBBY }
-        )
+        OnlineScreen.CREATE_ROOM -> CreateRoomScreen(roomCode, botCount, difficulty, roomCreated,
+            { if (botCount < 7) botCount++ }, { if (botCount > 0) botCount-- }, { difficulty = it },
+            { roomCode = generateRoomCode(); roomCreated = true; message = "Sala criada: $roomCode" },
+            { code -> roomCode = code; message = "Sala criada: $roomCode" },
+            { onlineScreen = OnlineScreen.LOBBY })
+        OnlineScreen.JOIN_ROOM -> JoinRoomScreen({ code ->
+            roomCode = code
+            if (code.length == 6) { message = "Código $code recebido. A conexão multiplayer será feita pelo servidor online."; onlineScreen = OnlineScreen.LOBBY }
+        }) { onlineScreen = OnlineScreen.LOBBY }
     }
 }
 
 @Composable
-private fun CreateRoomScreen(
-    roomCode: String,
-    botCount: Int,
-    difficulty: BotDifficulty,
-    onAddBot: () -> Unit,
-    onRemoveBot: () -> Unit,
-    onDifficulty: (BotDifficulty) -> Unit,
-    onCreate: () -> Unit,
-    onInvite: () -> Unit,
-    joined: Boolean,
-    onBack: () -> Unit
-) {
+private fun CreateRoomScreen(roomCode: String, botCount: Int, difficulty: BotDifficulty, roomCreated: Boolean,
+    onAddBot: () -> Unit, onRemoveBot: () -> Unit, onDifficulty: (BotDifficulty) -> Unit,
+    onCreate: () -> Unit, onShare: (String) -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("CRIAR SALA", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
-        if (!joined) {
-            Button(onClick = onCreate, Modifier.fillMaxWidth()) { Text("Criar sala") }
-        } else {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("CÓDIGO DA SALA", style = MaterialTheme.typography.labelLarge)
-                    Text(roomCode, style = MaterialTheme.typography.displaySmall)
-                    Button(onClick = onInvite, Modifier.fillMaxWidth()) { Text("Convidar amigos") }
-                }
+        if (!roomCreated) Button(onClick = onCreate, Modifier.fillMaxWidth()) { Text("Criar sala") }
+        else Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("CÓDIGO DA SALA")
+                Text(roomCode, style = MaterialTheme.typography.displaySmall)
+                Button(onClick = {
+                    val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Venha jogar JF2 comigo! Código da sala: $roomCode") }
+                    context.startActivity(Intent.createChooser(intent, "Convidar amigo"))
+                }, Modifier.fillMaxWidth()) { Text("Convidar amigos") }
             }
         }
         Spacer(Modifier.height(18.dp))
-        Text("Bots: $botCount / 7", style = MaterialTheme.typography.titleMedium)
-        Row {
-            OutlinedButton(onClick = onRemoveBot, enabled = botCount > 0) { Text("−") }
-            Spacer(Modifier.padding(4.dp))
-            Button(onClick = onAddBot, enabled = botCount < 7) { Text("+ Bot") }
-        }
+        Text("Bots: $botCount / 7")
+        Row { OutlinedButton(onClick = onRemoveBot, enabled = botCount > 0) { Text("−") }; Spacer(Modifier.padding(4.dp)); Button(onClick = onAddBot, enabled = botCount < 7) { Text("+ Bot") } }
         Spacer(Modifier.height(14.dp))
-        Text("Dificuldade dos bots: ${difficulty.label}")
-        BotDifficulty.values().forEach { level ->
-            TextButton(onClick = { onDifficulty(level) }) {
-                Text(if (level == difficulty) "✓ ${level.label}" else level.label)
-            }
-        }
+        Text("Dificuldade: ${difficulty.label}")
+        BotDifficulty.values().forEach { level -> TextButton(onClick = { onDifficulty(level) }) { Text(if (level == difficulty) "✓ ${level.label}" else level.label) } }
         Text("Novato < Amador < Mestre < Veterano", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onBack, Modifier.fillMaxWidth()) { Text("Voltar") }
@@ -244,17 +171,10 @@ private fun JoinRoomScreen(onJoin: (String) -> Unit, onBack: () -> Unit) {
     var code by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("ENTRAR EM SALA", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(12.dp))
-        Text("Digite o código de 6 caracteres que seu amigo enviou.")
+        Spacer(Modifier.height(12.dp)); Text("Digite o código de 6 caracteres que seu amigo enviou.")
         Spacer(Modifier.height(16.dp))
-        androidx.compose.material3.OutlinedTextField(
-            value = code,
-            onValueChange = { code = it.take(6).uppercase() },
-            label = { Text("Código da sala") },
-            singleLine = true
-        )
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = { onJoin(code) }, enabled = code.length == 6) { Text("Entrar") }
+        OutlinedTextField(value = code, onValueChange = { code = it.take(6).uppercase() }, label = { Text("Código da sala") }, singleLine = true)
+        Spacer(Modifier.height(12.dp)); Button(onClick = { onJoin(code) }, enabled = code.length == 6) { Text("Entrar") }
         OutlinedButton(onClick = onBack) { Text("Voltar") }
     }
 }
@@ -269,71 +189,14 @@ private fun MissionOne(hero: Hero?, onBack: () -> Unit) {
     var player by remember { mutableStateOf(Offset(500f, 500f)) }
     var aim by remember { mutableStateOf(Offset(1f, 0f)) }
     var enemies by remember { mutableStateOf(listOf(Enemy(1, Offset(260f, 300f), 3), Enemy(2, Offset(760f, 300f), 3), Enemy(3, Offset(300f, 700f), 3), Enemy(4, Offset(780f, 700f), 3))) }
-    var health by remember { mutableStateOf(100) }
-    var score by remember { mutableStateOf(0) }
-    var fireCooldown by remember { mutableStateOf(false) }
-    var gameOver by remember { mutableStateOf(false) }
-    var won by remember { mutableStateOf(false) }
-
-    LaunchedEffect(gameOver, won) {
-        while (!gameOver && !won) {
-            delay(80)
-            val next = enemies.map { enemy ->
-                val dx = player.x - enemy.position.x
-                val dy = player.y - enemy.position.y
-                val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
-                enemy.copy(position = Offset(enemy.position.x + dx / distance * 2f, enemy.position.y + dy / distance * 2f))
-            }
-            enemies = next
-            if (enemies.any { sqrt((it.position.x - player.x) * (it.position.x - player.x) + (it.position.y - player.y) * (it.position.y - player.y)) < 38f }) health = (health - 1).coerceAtLeast(0)
-            if (health <= 0) gameOver = true
-            if (enemies.isEmpty()) won = true
-        }
-    }
-
+    var health by remember { mutableStateOf(100) }; var score by remember { mutableStateOf(0) }; var fireCooldown by remember { mutableStateOf(false) }; var gameOver by remember { mutableStateOf(false) }; var won by remember { mutableStateOf(false) }
+    LaunchedEffect(gameOver, won) { while (!gameOver && !won) { delay(80); enemies = enemies.map { enemy -> val dx = player.x - enemy.position.x; val dy = player.y - enemy.position.y; val d = sqrt(dx * dx + dy * dy).coerceAtLeast(1f); enemy.copy(position = Offset(enemy.position.x + dx / d * 2f, enemy.position.y + dy / d * 2f)) }; if (enemies.any { sqrt((it.position.x - player.x) * (it.position.x - player.x) + (it.position.y - player.y) * (it.position.y - player.y)) < 38f }) health = (health - 1).coerceAtLeast(0); if (health <= 0) gameOver = true; if (enemies.isEmpty()) won = true } }
     Box(Modifier.fillMaxSize().background(Color(0xFF20252B))) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(Color(0xFF303840))
-            drawCircle(Color(0xFF4CAF50), 28f, player)
-            enemies.forEach { enemy ->
-                drawCircle(Color(0xFFE53935), 24f, enemy.position)
-                drawCircle(Color.White, 4f, enemy.position)
-            }
-            drawLine(Color.White, player, Offset(player.x + aim.x * 55f, player.y + aim.y * 55f), strokeWidth = 10f)
-        }
-        Column(Modifier.align(Alignment.TopStart).padding(16.dp)) {
-            Text("MISSÃO 1 — INVASÃO", color = Color.White, style = MaterialTheme.typography.titleLarge)
-            Text("${hero?.name ?: "Herói"} • Vida: $health • Inimigos: ${enemies.size} • Abates: $score", color = Color.White)
-        }
-        Box(Modifier.align(Alignment.BottomStart).padding(24.dp).pointerInput(Unit) {
-            detectDragGestures { _, dragAmount ->
-                val length = sqrt(dragAmount.x * dragAmount.x + dragAmount.y * dragAmount.y).coerceAtLeast(1f)
-                player = Offset((player.x + dragAmount.x / length * 12f).coerceIn(40f, 960f), (player.y + dragAmount.y / length * 12f).coerceIn(120f, 1600f))
-            }
-        }) { Card { Text("◉\nARRASTE\nPARA MOVER", Modifier.padding(18.dp)) } }
-        Column(Modifier.align(Alignment.BottomEnd).padding(24.dp), horizontalAlignment = Alignment.End) {
-            Button(onClick = { aim = Offset(0f, -1f) }) { Text("MIRAR ↑") }
-            Row { Button(onClick = { aim = Offset(-1f, 0f) }) { Text("←") }; Button(onClick = { aim = Offset(1f, 0f) }) { Text("→") } }
-            Button(onClick = { aim = Offset(0f, 1f) }) { Text("MIRAR ↓") }
-            Button(enabled = !fireCooldown && !gameOver && !won, onClick = {
-                fireCooldown = true
-                enemies.minByOrNull { (it.position.x - player.x) * (it.position.x - player.x) + (it.position.y - player.y) * (it.position.y - player.y) }?.let { target ->
-                    val dx = target.position.x - player.x
-                    val dy = target.position.y - player.y
-                    if (dx * aim.x + dy * aim.y > 0f && sqrt(dx * dx + dy * dy) < 650f) {
-                        val updated = target.copy(health = target.health - 1)
-                        enemies = if (updated.health <= 0) { score++; enemies.filterNot { it.id == target.id } } else enemies.map { if (it.id == target.id) updated else it }
-                    }
-                }
-            }) { Text(if (fireCooldown) "ATIRANDO..." else "ATIRAR") }
-        }
-        if (gameOver || won) Card(Modifier.align(Alignment.Center).padding(24.dp)) {
-            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (won) "MISSÃO CONCLUÍDA!" else "VOCÊ FOI DERROTADO", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = onBack) { Text("Voltar para seleção") }
-            }
-        }
+        Canvas(Modifier.fillMaxSize()) { drawRect(Color(0xFF303840)); drawCircle(Color(0xFF4CAF50), 28f, player); enemies.forEach { drawCircle(Color(0xFFE53935), 24f, it.position); drawCircle(Color.White, 4f, it.position) }; drawLine(Color.White, player, Offset(player.x + aim.x * 55f, player.y + aim.y * 55f), strokeWidth = 10f) }
+        Column(Modifier.align(Alignment.TopStart).padding(16.dp)) { Text("MISSÃO 1 — INVASÃO", color = Color.White); Text("${hero?.name ?: "Herói"} • Vida: $health • Inimigos: ${enemies.size} • Abates: $score", color = Color.White) }
+        Box(Modifier.align(Alignment.BottomStart).padding(24.dp).pointerInput(Unit) { detectDragGestures { _, drag -> val d = sqrt(drag.x * drag.x + drag.y * drag.y).coerceAtLeast(1f); player = Offset((player.x + drag.x / d * 12f).coerceIn(40f, 960f), (player.y + drag.y / d * 12f).coerceIn(120f, 1600f)) } }) { Card { Text("◉\nARRASTE\nPARA MOVER", Modifier.padding(18.dp)) } }
+        Column(Modifier.align(Alignment.BottomEnd).padding(24.dp), horizontalAlignment = Alignment.End) { Button(onClick = { aim = Offset(0f, -1f) }) { Text("MIRAR ↑") }; Row { Button(onClick = { aim = Offset(-1f, 0f) }) { Text("←") }; Button(onClick = { aim = Offset(1f, 0f) }) { Text("→") } }; Button(onClick = { aim = Offset(0f, 1f) }) { Text("MIRAR ↓") }; Button(enabled = !fireCooldown && !gameOver && !won, onClick = { fireCooldown = true; enemies.minByOrNull { (it.position.x - player.x) * (it.position.x - player.x) + (it.position.y - player.y) * (it.position.y - player.y) }?.let { target -> val dx = target.position.x - player.x; val dy = target.position.y - player.y; if (dx * aim.x + dy * aim.y > 0f && sqrt(dx * dx + dy * dy) < 650f) { val u = target.copy(health = target.health - 1); enemies = if (u.health <= 0) { score++; enemies.filterNot { it.id == target.id } } else enemies.map { if (it.id == target.id) u else it } } } }) { Text(if (fireCooldown) "ATIRANDO..." else "ATIRAR") } }
+        if (gameOver || won) Card(Modifier.align(Alignment.Center).padding(24.dp)) { Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(if (won) "MISSÃO CONCLUÍDA!" else "VOCÊ FOI DERROTADO", style = MaterialTheme.typography.headlineSmall); Spacer(Modifier.height(12.dp)); Button(onClick = onBack) { Text("Voltar para seleção") } } }
     }
     LaunchedEffect(fireCooldown) { if (fireCooldown) { delay(350); fireCooldown = false } }
 }
